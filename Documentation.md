@@ -3,6 +3,7 @@
 This repository provides the minimum required code needed to perform fitting of Time-resolved fluorescence anisotropy (TR-FAIM) data. This includes 
 * processing sdt anisotropy files 
 * image segmentation using user-defined threshold
+* pixel binning performed using kernel convolution 
 * digital filter for smoothing the anisotropy decay
 * G factor calculation
 * fitting - single decays and pixel-by-pixel image fitting
