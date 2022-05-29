@@ -35,10 +35,10 @@ The versions of some of the key packages used are:
 * numpy 1.20.1
 * scipy 1.7.1
 * matplotlib 3.3.3
-* sdtfile 2021.3.21
+* sdtfile 2021.3.21 - it also uses a ready package (https://pypi.org/project/sdtfile/) for reading sdt data which **has to be additionally installed** via `pip install sdt`    
 
-* it also uses a ready package (https://pypi.org/project/sdtfile/) for reading sdt data which **has to be additionally installed** via `pip install sdt`    
-* the graphics backend on the IDE has to be set to _Automatic_, to make sure the interactive plots will pop up. In Spyder, this can be done from: 
+
+The graphics backend on the IDE has to be set to _Automatic_, to make sure the interactive plots will pop up. In Spyder, this can be done from: 
 
 Tools => Preferences => IPython console => Graphics => Graphics backend => Automatic 
 
