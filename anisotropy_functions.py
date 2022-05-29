@@ -38,87 +38,141 @@ import scipy.sparse
 import math
 import pandas as pd 
 
-def fill_zeros(data):  # think of a better way to do this
+
+
+def read_sdt(cwd, filename):
     """
-    Replace zeros in a 2D array with the average of its neighbouring elements.
+    This function reads any Becker&Hickl .sdt file, uses sdt
+    library (from sdtfile import *) to return the file in SdtFile
+    format. This file is later used in process_sdt() to read the individual
+    decays and times in numpy array format.
+
+    Parameters
+    ----------
+    cwd : the current working directory where your files are (obtain by os.getcwd())
+    filename : string representing the name of the .sdt file
+
+    Returns
+    -------
+    data : data read by SdtFile - SdtFile object
+
     """
-    filled = data.copy()
-    count = 0  # count how many zeros will be replaced
-    for i in range(len(filled) - 1):
-        if filled[i] == 0:
-            filled[i] = np.ceil(np.mean([filled[i - 1], filled[i + 1]], axis=0))
-            count += 1
-        else:
-            pass
-    print(f"Total of {count} zeros have been replaced, {((count/len(data))*100)}% of all values ")
-    return filled  # print(indices)
+    cwd = cwd
+    # path = os.path.join(cwd, folder)
+    path = os.path.join(cwd, filename)
+    data = SdtFile(path)
+    return data
 
 
-def load_anifit_from_image(par_img,perp_img, IRF, x, y, time):
+def read_gfactor(cwd):
+    """
+    This function reads the Gfactor single decay .sdt file into an SdtFile
+    type. It searches the current working directory for a file containing
+    the 'gfactor' key word => the Gfactor file HAS TO CONTAIN 'gfactor' in
+    its filename. If more than one file contain 'gfactor' in their filename,
+    the second file will be read.
+
+    Parameters
+    ----------
+    cwd : the current working directory where your files are (obtain by os.getwd())
+
+    Returns
+    -------
+    data : data read by SdtFile
+
+    """
+    for file in os.listdir(cwd):
+        if "gfactor" in file and file.endswith(".sdt"):
+            path = os.path.join(cwd, file)
+            print(file)
+    data = SdtFile(path)
+    return data
+
+
+def plot_in_bound(param, name, bound_left, bound_right):
     '''
-    Creates a pandas dataframe to hold the decay data 
-    from a given pixel at x,y coordinates of choice 
-    of both a parallel and a perpendicular component image. 
-    The function aligns the par and perp decays. 
-    Then it aligns the IRF to the par decay peak 
-    and normalises it to its height. 
+    This function plots a histgoram of values within a parameter map only if they 
+    are within a certain range.
     
-    Use df.to_csv() to save as .csv file. 
+    Parameters: 
+        param - 2D numpy array (parameter map)
+        name - string - name which will show on the histgoram 
+        bound_left - int - lower bound 
+        bound_right - int - upper bound
     
-    Parameters:
-        par_img, perp_img - anisotropy images (3D arrays of each component)
-        x, y - pixel indices of the single decays of interest
-        time - array of time in ns 
-        IRF - full IRF array - same length 
+    Returns: 
+        - 
     
-    Returns:
-        single .csv file with all relevant decays. 
-             In line with requierments from AniFit software, the 
-             columns are: TimeVV, VV, TimeVH, VH, TimeIRF, IRF
-        
     '''
-    ani_file = pd.DataFrame()
-    parallel = par_img[:, x, y].flatten()
-    perp = perp_img[:, x, y].flatten()
-    perp, parallel, peak_idx, _ = align_peaks(perp, parallel, time, plot = True, norm = False)    
-    #IRF = IRF * (max(par)/max(IRF))
-    # align IRF (back) to the parallel decay and normalised wrt it 
-    parallel, IRF, _, _ = align_peaks(parallel, IRF, time, plot = True, norm = True)
+    plt.figure()
+    ravel = param.ravel()[~np.isnan(param.ravel())]
+    ravel = ravel[np.where(np.logical_and(ravel>=bound_left, ravel<=bound_right))]
+    plt.hist(ravel, bins=100)
+    plt.ylabel('Frequency', fontsize = 16)
+    plt.xlabel(name, fontsize = 16)
+    plt.plot()
     
-    # how many photons are at the peak? 
-    
-    print(f''''Peak photon count 
-          VV = {np.amax(parallel)}, 
-          VH = {np.amax(perp)}
-          ''')
-    
-    ani_file = ani_file.assign(timeVV = time)
-    ani_file = ani_file.assign(VV = parallel)
-    ani_file = ani_file.assign(timeVH = time)
-    ani_file = ani_file.assign(VH = perp)
-    ani_file = ani_file.assign(timeIRF = time)
-    ani_file = ani_file.assign(IRF = IRF)
-    return ani_file
+def process_sdt_image(data):
+    """
+    This function takes the SdtObject (raw anisotropy image data)
+    and returns the perpendicular and parallel matrix decays as 3D
+    numpy arrays. The arrays are transposed to have a shape (t,x,y),
+    as this is the required
 
-def load_ani_decays(par_decay, perp_decay, IRF, time): 
-    ani_file = pd.DataFrame()
-    perp_decay, par_decay, _, _ = align_peaks(perp_decay, par_decay, time, plot = True, norm = False)
-    par_decay, IRF, _, _ = align_peaks(par_decay, IRF, time, plot = True, norm = True)
-    
-    ani_file = ani_file.assign(timeVV = time)
-    ani_file = ani_file.assign(VV = par_decay)
-    ani_file = ani_file.assign(timeVH = time)
-    ani_file = ani_file.assign(VH = perp_decay)
-    ani_file = ani_file.assign(timeIRF = time)
-    ani_file = ani_file.assign(IRF = IRF)
-    
-    print(f''''Peak photon count 
-      VV = {np.amax(par_decay)}, 
-      VH = {np.amax(perp_decay)}
-      ''')
-          
-    return ani_file
-    
+    Parameters
+    ----------
+    data : SdtObject (image with parallel and perpendicular decay component)
+
+    Returns
+    -------
+    perpimage : uint16 : 3D numpy array holding perpendicular image data
+    transposed into shape (t,x,y).
+    parimage : uint16 : 3D numpy array holding perpendicular image data
+    transposed into shape (t,x,y).
+    time : float64 1D numpy array holding the time in seconds
+    timens : float64 1D numpy array holding the time in nanoseconds
+    bins : scalar, number of time bins
+
+    """
+    perpimage = np.array(data.data[1]).transpose((2, 0, 1))  # return an x by y by t matrix
+    parimage = np.array(data.data[0]).transpose((2, 0, 1))
+    time = np.array(data.times[0])  # return array of times in seconds
+    bins = len(time)
+    ns = 1000000000
+    timens = np.multiply(time, ns)  # time array in nanoseconds
+    return perpimage, parimage, time, timens, bins
+
+
+def process_sdt(data):
+    """
+    This function takes the single SdtFile anisotropy file,
+    and reads the perpendicular (1), parallel (2) decays
+    and the time bins into numpy arrays.
+    It assumes the time is in nanoseconds, and uses that to
+    create a time vector of nanoseconds.
+
+    Parameters
+    ----------
+    data :SdtFile anisotropy data with two channels (one for
+    each component - parallel and perpendicular)
+
+    Returns
+    -------
+    perpdecay : uint16 array of the perpendicular decay histogram
+    pardecay : uint16 array of the parallel decay histogram
+    time : float64 array of the times in nanoseconds
+    bins: number of time bins
+
+    """
+    perpdecay = np.array(data.data[1]).flatten()  ##  M2 - perpendicular
+    pardecay = np.array(data.data[0]).flatten()  ## M1 - parallel
+    time = np.array(data.times[0])
+    bins = len(time)
+    ns = 1000000000
+    time = np.multiply(time, ns)  ## convert to ns
+    return perpdecay, pardecay, time, bins
+
+
 def cumulative_decay(image):
     '''
     Takes a 3D image with dimensions (t,x,y) and outputs a single decay. 
@@ -130,25 +184,6 @@ def cumulative_decay(image):
         decay = np.append(decay, image[i].sum())
     print(f'Maximum photon count in this array is {np.amax(decay)}')
     return decay 
-
-def shift_IRF(IRF, t, shift, plot = False):
-    '''
-    the IRF should be shift by some amount of time bins 
-    (usually 2)
-    
-    '''
-    IRF_shifted = np.pad(IRF, (0, shift), mode = "constant")[shift:]
-    if plot: 
-        plt.plot(t, IRF, label= 'initial')
-        plt.plot(t, IRF_shifted, label = 'shifted')
-        plt.legend(loc = 'upper right')
-        plt.show()
-        plt.pause(10)
-        plt.title('shifted IRF')
-        plt.close()
-        
-    return IRF_shifted 
-    
     
 def create_lifetime_decay_img(perp, par, G):
     """
@@ -185,19 +220,13 @@ def create_lifetime_decay_img(perp, par, G):
     lifetime[:] = np.add(par[:], (2.0 * G * perp[:]))
     return lifetime
 
-def create_anisotropy_img(perp,par,G): 
-    '''
-    Assume t,x,y array format 
-    
-    '''
-
 def percent_in_bounds(image, bounds):
     '''
     Calculate and prints the % of non-nan values within
-    the given range
+    the given range.
     
-    image - 2D numpy array of parameters 
-    bounds - list of values  
+    image - 2D numpy array (i.e. the map of parameter estimates)
+    bounds - list of values for the range  
     '''
     lower = bounds[0]
     upper = bounds[1]
@@ -326,102 +355,6 @@ def bin_image_convolve(data, filter_type, kernel_size, mode):
     return binned
 
 
-def bin_image(data):
-    """
-    This function takes an image stack (3D array) and performs a
-    3x3 binning (or bin=1 by SPCImage / Becker & Hickl convention),
-    by summing the photons of the immediate neighbouring pixels in each
-    stack/slice/time channel.
-    The image data has to be of the shape (t,x,y), i.e. the time
-    channel dimension has to be first. This can be achieved by
-    data.transform((2,0,1))
-
-    Parameters
-    ----------
-    data : image data, a 3D array (e.g. x, y and time dimension)
-    xdim : size of x dimension of image
-    ydim : size of y dimension of image
-    t : number of stacks/slices/time channels
-
-    Returns
-    -------
-    binned : 3x3 binned image ; array of float64
-
-    """
-    print("Binning started, this might take a while.")
-    dims = data.shape
-    t = dims[0]
-    x = dims[1]
-    y = dims[2]
-    # print(f'Image.shape: {data.shape}')
-    binned = np.zeros_like(data)  # create empty array of same dims to hold the data
-    # print(f'Empty bin dimensions: {binned.shape}')
-    # print(binned)
-    for i in range(x):  # iterate columns
-        # print(f'x = {i} of total {x} pixels ')
-        for j in range(y):  # iterate along rows
-            # print(f'y = {j} of total {y} pixels ')
-            if i == 0:  # entire first row
-                if j == 0:  # top left corner
-                    binned[:, i, j] = np.sum(
-                        [[data[:, i, j] for j in range(j, j + 2)] for i in range(i, i + 2)],
-                        axis=0,
-                    ).sum(axis=0)
-                elif j == y - 1:  # top right corner
-                    binned[:, i, j] = np.sum(
-                        [[data[:, i, j] for j in range(j - 1, j + 1)] for i in range(i, i + 2)],
-                        axis=0,
-                    ).sum(axis=0)
-                else:  # on edge (non-corner) of first row
-                    binned[:, i, j] = np.sum(
-                        [[data[:, i, j] for j in range(j - 1, j + 2)] for i in range(i, i + 2)],
-                        axis=0,
-                    ).sum(axis=0)
-
-            elif i == x - 1:  # entire last row
-                if j == 0:  # bottom left corner
-                    binned[:, i, j] = np.sum(
-                        [[data[:, i, j] for j in range(j, j + 2)] for i in range(i - 1, i + 1)],
-                        axis=0,
-                    ).sum(axis=0)
-                elif j == y - 1:  # bottom right corner
-                    binned[:, i, j] = np.sum(
-                        [
-                            [data[:, i, j] for j in range(j - 1, j + 1)]
-                            for i in range(i - 1, i + 1)
-                        ],
-                        axis=0,
-                    ).sum(axis=0)
-                else:  # on edge (non-corner) of last row
-                    binned[:, i, j] = np.sum(
-                        [
-                            [data[:, i, j] for j in range(j - 1, j + 2)]
-                            for i in range(i - 1, i + 1)
-                        ],
-                        axis=0,
-                    ).sum(axis=0)
-
-            elif j == 0:  # entire first column, corners should be caught by now
-                binned[:, i, j] = np.sum(
-                    [[data[:, i, j] for j in range(j, j + 2)] for i in range(i - 1, i + 2)],
-                    axis=0,
-                ).sum(axis=0)
-
-            elif j == y - 1:  # entire last column
-                binned[:, i, j] = np.sum(
-                    [[data[:, i, j] for j in range(j - 1, j + 1)] for i in range(i - 1, i + 2)],
-                    axis=0,
-                ).sum(axis=0)
-
-            else:  # if on the inside of matrix
-                binned[:, i, j] = np.sum(
-                    [[data[:, i, j] for j in range(j - 1, j + 2)] for i in range(i - 1, i + 2)],
-                    axis=0,
-                ).sum(axis=0)
-    print("Binning done.")
-    return binned
-
-
 def cum_projection(data):
     """
     This function takes an image stack (3D array) and sums up all
@@ -469,99 +402,6 @@ def align_image(perp, par, time):
     peaks = np.array(peaks)
     return perp, par, peaks
 
-def deconvolve_IRF(IRF, decay, time, plot=False):
-    """
-    This function deconvolves the instrument
-    response function from the observed lifetime decay.
-    Pass plot = True to plot the IRF and the convolved decay, normalised to the same height.
-    It uses the numpy convolution function.
-
-    Requires:
-        align_peaks from anisotropy_functions
-
-    Parameters
-    ----------
-    IRF : numpy array of instrument response function
-    decay : numpy array of decay we want to convolve
-    time : numpy array of time vector in nanoseconds
-    plot : Boolean : default = False
-
-    Returns
-    -------
-    deconvolved : 2D array - the convolved decay normalised to the height
-    of the raw (input) decay
-
-    """
-    # dx = time[1] - time[0]
-    # convolved = scipy.signal.convolve(IRF, decay, mode = 'full', method = 'fft')[:len(time)]
-
-    IRF = IRF * (max(decay) / max(IRF))
-
-    # convolved = np.convolve(IRF,decay)[:len(time)]
-
-    # print(decay.shape)
-    # print(time.shape)
-    # print(IRF.shape)
-
-    # print(type(IRF))
-
-    # minIRF = min(IRF)
-    # print(minIRF)
-    # IRF = np.where(IRF == 0, 0.1, IRF)
-    # decay = np.where(decay == 0, 0.1, decay)
-    # print(IRF[0])
-
-    # deconvolve returns a tuple of (signal,remainder)
-    # deconvolution result is zero??
-    # deconv = scipy.signal.deconvolve(decay, IRF)[0]
-
-    N = 2 ** (math.ceil(math.log2(len(IRF) + len(decay))))
-
-    print(f"N: {N}")
-    filtered = np.fft.ifft(np.fft.fft(decay, N) / np.fft.fft(IRF, N))
-
-    print(f" Real shape: {filtered.real.shape}")
-    print(f" Imaginary shape: {filtered.imag.shape}")
-
-    # the deconvolution has n = len(signal) - len(gauss) + 1 points
-    # extend by difference between decay and deconv
-    # s = int((len(decay)-(len(deconv)))/2)  ## diff - 1 on each side
-    # on both sides (hence divide by 2)
-    # deconv_res = np.zeros(len(decay))   ##will hold the final result - same length as original decay
-
-    # if (len(decay)-len(deconv)%2==0):   # if difference is even
-    #    end = int(len(decay)-s-1)  # final index - same length as
-    # else:
-    #    print('Difference is uneven')
-    #    end = int(len(decay)-s-1)
-
-    # print(s)
-    # print(end)
-    # print(deconv_res.shape)
-    # print(deconv.shape)
-
-    # deconv_res[s:end] = deconv
-    # deconv = deconv_res
-    # convolved normalized to decay height
-    # print(deconvolved)
-    # deconv_n = deconv * (max(decay)/max(deconv))
-    # deconvolved_n = deconvolved
-    # print(len(deconvolved_n))
-    deconv = filtered.real
-    timenew = np.array(range(len(deconv)))
-    # align peaks for a plot only
-    # convolved_n, IRF, _, _ = align_peaks(convolved_n, IRF, time, plot = False)
-    if plot:
-        plt.plot(timenew, deconv, label="deconvolved")
-        # plt.plot(timenew, filtered.real, label = 'real')
-        #    #plt.plot(time[:len(IRF)], IRF, label = 'IRF')
-        #    #plt.plot(time, deconv_n, label = 'deconvolved')
-        # plt.legend(loc = 'lower left', fontsize= 14)
-        #    plt.xlabel('Time(ns)', fontsize= 16)
-        #    plt.ylabel('Counts', fontsize= 16)
-        plt.show()
-    return filtered
-
 
 def plot_IRF_decay(IRF, decay, time, scale):
     """
@@ -581,117 +421,6 @@ def plot_IRF_decay(IRF, decay, time, scale):
     plt.show()
 
 
-def read_sdt(cwd, filename):
-    """
-    This function reads any Becker&Hickl .sdt file, uses sdt
-    library (from sdtfile import *) to return the file in SdtFile
-    format. This file is later used in process_sdt() to read the individual
-    decays and times in numpy array format.
-
-    Parameters
-    ----------
-    cwd : the current working directory where your files are (obtain by os.getcwd())
-    filename : string representing the name of the .sdt file
-
-    Returns
-    -------
-    data : data read by SdtFile - SdtFile object
-
-    """
-    cwd = cwd
-    # path = os.path.join(cwd, folder)
-    path = os.path.join(cwd, filename)
-    data = SdtFile(path)
-    return data
-
-
-def read_gfactor(cwd):
-    """
-    This function reads the Gfactor single decay .sdt file into an SdtFile
-    type. It searches the current working directory for a file containing
-    the 'gfactor' key word => the Gfactor file HAS TO CONTAIN 'gfactor' in
-    its filename. If more than one file contain 'gfactor' in their filename,
-    the second file will be read.
-
-    Parameters
-    ----------
-    cwd : the current working directory where your files are (obtain by os.getwd())
-
-    Returns
-    -------
-    data : data read by SdtFile
-
-    """
-    for file in os.listdir(cwd):
-        if "gfactor" in file and file.endswith(".sdt"):
-            path = os.path.join(cwd, file)
-            print(file)
-    data = SdtFile(path)
-    return data
-
-
-def process_sdt_image(data):
-    """
-    This function takes the SdtObject (raw anisotropy image data)
-    and returns the perpendicular and parallel matrix decays as 3D
-    numpy arrays. The arrays are transposed to have a shape (t,x,y),
-    as this is the required
-
-    Parameters
-    ----------
-    data : SdtObject (image with parallel and perpendicular decay component)
-
-    Returns
-    -------
-    perpimage : uint16 : 3D numpy array holding perpendicular image data
-    transposed into shape (t,x,y).
-    parimage : uint16 : 3D numpy array holding perpendicular image data
-    transposed into shape (t,x,y).
-    time : float64 1D numpy array holding the time in seconds
-    timens : float64 1D numpy array holding the time in nanoseconds
-    bins : scalar, number of time bins
-
-    """
-    perpimage = np.array(data.data[1]).transpose((2, 0, 1))  # return an x by y by t matrix
-    parimage = np.array(data.data[0]).transpose((2, 0, 1))
-    time = np.array(data.times[0])  # return array of times in seconds
-    bins = len(time)
-    ns = 1000000000
-    timens = np.multiply(time, ns)  # time array in nanoseconds
-    return perpimage, parimage, time, timens, bins
-
-
-def process_sdt(data):
-    """
-    This function takes the single SdtFile anisotropy file,
-    and reads the perpendicular (1), parallel (2) decays
-    and the time bins into numpy arrays.
-    It assumes the time is in nanoseconds, and uses that to
-    create a time vector of nanoseconds.
-
-    Parameters
-    ----------
-    data :SdtFile anisotropy data with two channels (one for
-    each component - parallel and perpendicular)
-
-    Returns
-    -------
-    perpdecay : uint16 array of the perpendicular decay histogram
-    pardecay : uint16 array of the parallel decay histogram
-    time : float64 array of the times in nanoseconds
-    bins: number of time bins
-
-    """
-    perpdecay = np.array(data.data[1]).flatten()  ##  M2 - perpendicular
-    pardecay = np.array(data.data[0]).flatten()  ## M1 - parallel
-    time = np.array(data.times[0])
-    bins = len(time)
-    ns = 1000000000
-    time = np.multiply(time, ns)  ## convert to ns
-    return perpdecay, pardecay, time, bins
-
-
-## plot decay in log
 def plot_decays(decay1, decay1_name, decay2, decay2_name, time, scale, norm=False, title = None ):
     """
     Plots the perpendiculal and parallel decays on the same plot.
@@ -1351,245 +1080,3 @@ def count_zeros(perpdecay, pardecay, bins=4096):
     zerosperp = bins - np.count_nonzero(perpdecay)  # 3316
     zerospar = bins - np.count_nonzero(pardecay)  # 3313
     return zerosperp, zerospar
-
-
-def count_negatives(perpdecay, pardecay):
-    """
-    Returns the number of negative values in the perpendicular
-    and parallel decay, respectivaly.
-    """
-    negativeperp = np.sum(np.array(perpdecay) < 0)
-    negativepar = np.sum(np.array(pardecay) < 0)
-    return negativeperp, negativepar
-
-
-def simulate_rinf_conv_single(p1, p2, p3, perp, par, time, G, IRF, conv=True):
-    """
-    p1 - r0
-    p2 - theta
-    p3 - r_inf
-    """
-    total = np.add(par, (2 * G * perp))
-
-    perp, par, peak_index, _ = align_peaks(perp, par, time, plot=False)
-    # plt.pause(5)
-    # plt.close()
-    perp, total, peak_index, _ = align_peaks(perp, total, time, plot=False)
-    # plt.pause(5)
-    # plt.close()
-
-    #
-    perp_s = apply_savgol(perp, time, 9, 2, plot=True, norm=False)
-    plt.pause(10)
-    plt.close()
-    par_s = apply_savgol(par, time, 9, 2, plot=True, norm=False)
-    plt.pause(10)
-    plt.close()
-    total_s = apply_savgol(total, time, 9, 2, plot=True, norm=False)
-    plt.pause(10)
-    plt.close()
-
-    # normalize to raw decay height
-    perp_s = perp_s * (max(perp) / max(perp_s))
-    par_s = par_s * (max(par) / max(par_s))
-    total_s = total_s * (max(total) / max(total_s))
-
-    # get rid of 0s
-    perp_s = np.where(perp_s < 0.1, 0.1, perp_s)
-    par_s = np.where(par_s < 0.1, 0.1, par_s)
-    total_s = np.where(total_s < 0.1, 0.1, total_s)
-
-    # get weights
-    w_perp = 1 / np.sqrt(perp_s)
-    w_par = 1 / np.sqrt(par_s)
-    # weights_total =np.divide(1, np.sqrt(totalimage_s))
-
-    print(perp_s)
-    print(w_perp)
-
-    plt.plot(time, perp_s, "r")
-    plt.plot(time, w_perp, "b")
-    plt.plot(time, perp)
-    plt.pause(20)
-    plt.close()
-
-    t = time
-
-    # print(t)
-    if conv:
-        model_func_perp = lambda IRF, t, total, G, perp, p1, p2: (
-            (
-                max(perp)
-                / max(np.convolve(IRF, ((total / 3) * G * (1 - (p1 * np.exp(-t / p2)))))[: len(t)])
-            )
-            * (np.convolve(IRF, (total / 3) * G * (1 - (p1 * np.exp(-t / p2))))[: len(t)])
-        )
-        model_func_par = lambda IRF, t, total, par, p1, p2: (
-            (
-                max(par)
-                / max(np.convolve(IRF, ((total / 3) * (1 + 2 * (p1 * np.exp(-t / p2)))))[: len(t)])
-            )
-            * (np.convolve(IRF, ((total / 3) * (1 + 2 * (p1 * np.exp(-t / p2)))))[: len(t)])
-        )
-
-        objective = (
-            lambda p, IRF, t, total, G, perp, par, w_perp, w_par: norm(
-                (model_func_par(IRF, t, total, par, p[0], p[1]) - par) * w_par
-            )
-            ** 2
-            + norm((model_func_perp(IRF, t, total, G, perp, p[0], p[1]) - perp) * w_perp) ** 2
-        )
-        obj = objective([p1, p2], IRF, t, total, G, perp, par, w_perp, w_par)
-
-        # model with provided params
-        y_perp_fit = model_func_perp(IRF, t, total, G, perp, p1, p2) * w_perp
-        y_par_fit = model_func_par(IRF, t, total, par, p1, p2) * w_par
-
-    else:
-        model_func_perp = (
-            lambda t, total, G, p1, p2: (total / 3) * G * (1 - (p1 * np.exp(-t / p2)))
-        )
-        model_func_par = lambda t, total, p1, p2: (total / 3) * (1 + 2 * (p1 * np.exp(-t / p2)))
-
-        objective = (
-            lambda p, t, total, G, perp, par, w_perp, w_par: norm(
-                (model_func_par(t, total, p[0], p[1]) - par) * w_par
-            )
-            ** 2
-            + norm((model_func_perp(t, total, G, p[0], p[1]) - par) * w_perp) ** 2
-        )
-        obj = objective([p1, p2], t, total, G, perp, par, w_perp, w_par)
-
-        y_perp_fit = model_func_perp(t, total, G, p1, p2)
-        y_par_fit = model_func_par(t, total, p1, p2)
-
-    fig, ax = plt.subplots(2, 2)
-    ax[0, 0].plot(t, y_perp_fit, "r", label="model")
-    ax[0, 0].plot(t, perp, "--", label="raw")
-    ax[0, 0].set_title("Perpendicular decay")
-    ax[0, 1].plot(t, y_par_fit, "r", label="model")
-    ax[0, 1].plot(t, par, "--", label="raw")
-    ax[0, 1].set_title("Parallel decay")
-    # ax[1,0].plot(t, res_perp)
-    # ax[1,1].plot(t, res_par)
-    for ax in ax[0, :].flat:
-        ax.set(xlabel="Time (ns)", ylabel="Counts")
-        # ax.set(xlim = (t,30))
-    plt.show()
-
-    # get objective function
-    # objective = lambda p, t, total, G, y_perp, y_par, w_perp, w_par: norm((model_func_par(t,total, p[0], p[1], p[2]) - y_par)*w_par)**2 + norm(( model_func_perp(t,total, G, p[0], p[1], p[2]) - y_par)*w_perp)**2
-
-    # objective with these particular initial params
-    # obj = objective([p1,p2,p3], t, total_s, G, perp, par, w_perp, w_par)
-
-    print(f"Objective function = {obj}")
-    return obj, y_perp_fit, y_par_fit
-
-
-# def simulate_r_NLLS_hindered(r, time, r0, rinf, theta, SG_window, SG_polynomial)
-
-
-def simulate_par_NLLS_IRF(perp, par, time, G, IRF, SG_window, SG_polynomial, r00, theta0, rinf0):
-    """
-    p1 - r0
-    p2 - theta
-    p3 - r_inf
-    """
-    t = time
-    p10, p20, p30 = r00, theta0, rinf0
-
-    # convolve with IRF
-    par_conv = np.convolve(IRF, par)[: len(t)]
-    perp_conv = np.convolve(IRF, perp)[: len(t)]
-
-    # normalize convolved to raw decay height
-    par_conv = par_conv * (max(par) / max(par_conv))
-    perp_conv = perp_conv * (max(perp) / max(perp_conv))
-
-    # =============================================================================
-    #     plt.plot(time, par,  '-', label = 'raw decay')
-    #     plt.plot(time, par_conv, label = 'convolved')
-    #     plt.ylabel('Counts', fontsize = 16)
-    #     plt.xlabel('Time (ns)', fontsize = 16)
-    #     plt.legend(loc = 'upper right')
-    #     plt.show()
-    #     plt.pause(20)
-    #     plt.close()
-    #
-    # =============================================================================
-    # align peaks for perp and par
-    perp_conv, par_conv, peak_idx, _ = align_peaks(perp_conv, par_conv, t, plot=False)
-
-    # calculate lifetime
-    total = np.add(par_conv, (2 * G * perp_conv))
-
-    # =============================================================================
-    #     plt.plot(t, par_conv, label = 'parallel')
-    #     plt.plot(t, perp_conv, label = 'perpendicular')
-    #     plt.plot(t, total, label = 'lifetime')
-    #     plt.title('Convolved and aligned data')
-    #     plt.legend(loc = 'upper right')
-    #     plt.ylabel('Counts', fontsize = 16)
-    #     plt.xlabel('Time (ns)', fontsize = 16)
-    #     plt.show()
-    #     plt.pause(15)
-    #     plt.close()
-    # =============================================================================
-
-    # apply savitzky golay filter
-    par_s = apply_savgol(par, time, SG_window, SG_polynomial, plot=True, norm=True)
-    # total_s = apply_savgol(total, time, SG_window, SG_polynomial,plot = False, norm = True)
-
-    # normalize smoothed decay to raw decay height
-    par_s = par_s * (max(par) / max(par_s))
-    # total_s = total_s * (max(total)/max(total_s))
-
-    # take away zeros
-    par_s = np.where(par_s < 0.1, 0.1, par_s)
-    # total_s = np.where(total_s < 0.1, 0.1, total_s)
-    print(peak_idx)
-    # get weights
-    w = 1 / np.sqrt(par_s)
-
-    peak_idx = peak_idx - 1
-    # choose data to be used for fits
-    y = par_conv[peak_idx:]
-    total = total[peak_idx:]
-    w = w[peak_idx:]
-    t = t[peak_idx:]
-
-    # y = par
-    # total = total
-    # t = t
-
-    model_func = lambda t, total, p1, p2, p3: (total / 3) * (
-        1 + 2 * ((p1 - p3) * np.exp(-t / p2) + p3)
-    )
-
-    p = [p10, p20, p30]
-
-    # sum of differences, weighted by Poisson noise from Sav Gol filter
-    error_func = lambda p, t, total, y, w: (y - (model_func(t, total, p[0], p[1], p[2]))) * w
-    # error_func = lambda p, t, total, y, w: (y - y) * w
-    # bounds = ([0, 1], [0,10], [-0.2, 1])
-
-    # Root Mean Squared error - reduced chi squared
-    s_sq = np.sum(error_func(p, t, total, y, w) ** 2) / (len(y) - len(p))
-
-    # Root Mean Squared error - residuals
-    res = error_func(p, t, total, y, w) / (len(y) - len(p))
-
-    print("Reduced chi-square = ", s_sq)
-    # print("Error on function = ", error_func(p,t,total,y,w))
-
-    y_fit = model_func(t, total, p[0], p[1], p[2])
-
-    plt.plot(t, y_fit, "-r", label="model")
-    plt.plot(t, y, ".", label="raw decay")
-    plt.legend(loc="upper right", fontsize=14)
-    plt.ylabel("Counts", fontsize=16)
-    plt.xlabel("Time (ns)", fontsize=16)
-    plt.title(f"r0 = {p[0]}, theta = {p[1]}, rinf = {p[2]}, chi_sq = {s_sq.round(2)}")
-
-    return res, y_fit, y
