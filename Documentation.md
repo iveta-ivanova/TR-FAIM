@@ -12,6 +12,10 @@ This repository provides the minimum required code needed to perform fitting of 
 * ROI selection, cumulative decay creation from selected ROI
 * basic statistics and exploratory functions 
 
+'''
+The code and ideas behind it were generated entirely by me (Iveta Ivanova) during the final year of my PhD at King's College London, funded by the UKRI's Engineering and Physical Sciences Research Council (EPSRC).
+'''
+
 This documentation describes the requirements, assumptions and conditions associated with using this code to perform this analysis. 
 This documentation assumes knowledge of anisotropy principles, with microscopy image data and some familiarity with programming.
 
